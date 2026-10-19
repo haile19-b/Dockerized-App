@@ -138,3 +138,22 @@ curl -X POST http://localhost:5001/api/chat \
 | Stop containers and delete volume | `docker compose down -v` |
 | Rebuild all containers | `docker compose up --build -d` |
 | Access database with psql | `docker compose exec db psql -U postgres -d chatbot_db` |
+
+---
+
+## 🔄 CI/CD Pipeline (GitHub Actions)
+
+This project includes an automated **Continuous Integration (CI)** pipeline configured with GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
+
+Whenever changes are pushed to `main` or a Pull Request is opened:
+1. **Docker Buildx Setup:** Initializes an optimized Docker builder on an Ubuntu runner.
+2. **Configuration Validation:** Validates `docker compose config` syntax.
+3. **Multi-Container Build:** Builds the `frontend` and `backend` images and pulls PostgreSQL.
+4. **Service Startup & Health Polling:** Launches the full stack and waits for database healthchecks.
+5. **End-to-End API Verification:**
+   - Validates `GET /api/health` returns `status: ok` and `database: connected`.
+   - Sends a test message via `POST /api/chat`.
+   - Verifies message storage via `GET /api/messages`.
+   - Verifies the Next.js frontend returns HTTP `200 OK`.
+6. **Automatic Cleanup:** Safely tears down containers and volumes.
+
