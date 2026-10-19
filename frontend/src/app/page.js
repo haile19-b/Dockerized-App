@@ -8,16 +8,28 @@ export default function ChatPage() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [sessionId, setSessionId] = useState('');
   const [status, setStatus] = useState({ backend: 'checking', database: 'checking' });
   const [errorMessage, setErrorMessage] = useState('');
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
 
-  // Check health and load existing messages
+  // Initialize unique user session ID and load data
   useEffect(() => {
+    let sid = '';
+    if (typeof window !== 'undefined') {
+      sid = localStorage.getItem('chatbot_session_id');
+      if (!sid) {
+        sid = 'user_' + Math.random().toString(36).substring(2, 9) + Date.now().toString(36);
+        localStorage.setItem('chatbot_session_id', sid);
+      }
+      setSessionId(sid);
+    }
     checkHealth();
-    fetchMessages();
-    const interval = setInterval(checkHealth, 15000); // Check status periodically
+    if (sid) {
+      fetchMessages(sid);
+    }
+    const interval = setInterval(checkHealth, 15000);
     return () => clearInterval(interval);
   }, []);
 
@@ -43,9 +55,12 @@ export default function ChatPage() {
     }
   };
 
-  const fetchMessages = async () => {
+  const fetchMessages = async (sid = sessionId) => {
+    if (!sid) return;
     try {
-      const res = await fetch(`${BACKEND_URL}/api/messages`);
+      const res = await fetch(`${BACKEND_URL}/api/messages`, {
+        headers: { 'x-session-id': sid },
+      });
       if (res.ok) {
         const data = await res.json();
         setMessages(Array.isArray(data) ? data : []);
@@ -75,8 +90,11 @@ export default function ChatPage() {
     try {
       const res = await fetch(`${BACKEND_URL}/api/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: trimmed }),
+        headers: {
+          'Content-Type': 'application/json',
+          'x-session-id': sessionId,
+        },
+        body: JSON.stringify({ message: trimmed, sessionId }),
       });
 
       if (!res.ok) {
@@ -111,9 +129,12 @@ export default function ChatPage() {
   };
 
   const handleClearHistory = async () => {
-    if (!confirm('Are you sure you want to clear conversation history?')) return;
+    if (!confirm('Are you sure you want to clear your conversation history?')) return;
     try {
-      const res = await fetch(`${BACKEND_URL}/api/messages`, { method: 'DELETE' });
+      const res = await fetch(`${BACKEND_URL}/api/messages`, {
+        method: 'DELETE',
+        headers: { 'x-session-id': sessionId },
+      });
       if (res.ok) {
         setMessages([]);
       } else {
@@ -122,6 +143,13 @@ export default function ChatPage() {
     } catch (err) {
       alert(`Error connecting to server: ${err.message}`);
     }
+  };
+
+  const handleNewChat = () => {
+    const newSid = 'user_' + Math.random().toString(36).substring(2, 9) + Date.now().toString(36);
+    localStorage.setItem('chatbot_session_id', newSid);
+    setSessionId(newSid);
+    setMessages([]);
   };
 
   const handleKeyDown = (e) => {
@@ -183,9 +211,13 @@ export default function ChatPage() {
               <span>DB: {status.database}</span>
             </span>
 
+            <button onClick={handleNewChat} className="btn-secondary" title="Start a fresh private conversation session">
+              + New Chat
+            </button>
+
             {messages.length > 0 && (
-              <button onClick={handleClearHistory} className="btn-secondary" title="Clear chat history in PostgreSQL">
-                Clear History
+              <button onClick={handleClearHistory} className="btn-secondary" title="Clear your conversation history in PostgreSQL">
+                Clear
               </button>
             )}
           </div>

@@ -71,6 +71,31 @@ jobs:
           echo "Frontend returned HTTP status: $HTTP_STATUS"
           [ "$HTTP_STATUS" -eq 200 ]
 
+      - name: Test Per-User Session Isolation
+        run: |
+          # Alice sends a message
+          curl -s -X POST http://localhost:5001/api/chat \
+            -H "Content-Type: application/json" \
+            -H "x-session-id: user_alice" \
+            -d '{"message": "Secret message from Alice"}'
+
+          # Bob sends a message
+          curl -s -X POST http://localhost:5001/api/chat \
+            -H "Content-Type: application/json" \
+            -H "x-session-id: user_bob" \
+            -d '{"message": "Secret message from Bob"}'
+
+          # Alice's history must not contain Bob's message
+          ALICE_HISTORY=$(curl -s http://localhost:5001/api/messages -H "x-session-id: user_alice")
+          echo "$ALICE_HISTORY" | grep -q 'Secret message from Alice'
+          ! echo "$ALICE_HISTORY" | grep -q 'Secret message from Bob'
+
+          # Bob's history must not contain Alice's message
+          BOB_HISTORY=$(curl -s http://localhost:5001/api/messages -H "x-session-id: user_bob")
+          echo "$BOB_HISTORY" | grep -q 'Secret message from Bob'
+          ! echo "$BOB_HISTORY" | grep -q 'Secret message from Alice'
+          echo "Per-user session isolation verified successfully!"
+
       - name: Display Container Logs on Failure
         if: failure()
         run: docker compose logs

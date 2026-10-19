@@ -14,12 +14,15 @@ async function initDb(retries = 5, delayMs = 2000) {
         await client.query(`
           CREATE TABLE IF NOT EXISTS messages (
             id SERIAL PRIMARY KEY,
+            session_id VARCHAR(100) DEFAULT 'default',
             sender VARCHAR(20) NOT NULL CHECK (sender IN ('user', 'assistant')),
             content TEXT NOT NULL,
             created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
           );
+          ALTER TABLE messages ADD COLUMN IF NOT EXISTS session_id VARCHAR(100) DEFAULT 'default';
+          CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages (session_id);
         `);
-        console.log('[DB] Database schema initialized successfully.');
+        console.log('[DB] Database schema and session index initialized successfully.');
         return;
       } finally {
         client.release();
@@ -36,26 +39,27 @@ async function initDb(retries = 5, delayMs = 2000) {
   }
 }
 
-// Fetch conversation history
-async function getMessages() {
+// Fetch conversation history for a specific session/user
+async function getMessages(sessionId = 'default') {
   const result = await pool.query(
-    'SELECT id, sender, content, created_at FROM messages ORDER BY id ASC'
+    'SELECT id, sender, content, session_id, created_at FROM messages WHERE session_id = $1 ORDER BY id ASC',
+    [sessionId]
   );
   return result.rows;
 }
 
-// Save a new message
-async function saveMessage(sender, content) {
+// Save a new message for a specific session/user
+async function saveMessage(sender, content, sessionId = 'default') {
   const result = await pool.query(
-    'INSERT INTO messages (sender, content) VALUES ($1, $2) RETURNING id, sender, content, created_at',
-    [sender, content]
+    'INSERT INTO messages (sender, content, session_id) VALUES ($1, $2, $3) RETURNING id, sender, content, session_id, created_at',
+    [sender, content, sessionId]
   );
   return result.rows[0];
 }
 
-// Delete all messages (history reset)
-async function clearMessages() {
-  await pool.query('DELETE FROM messages');
+// Delete all messages for a specific session/user
+async function clearMessages(sessionId = 'default') {
+  await pool.query('DELETE FROM messages WHERE session_id = $1', [sessionId]);
 }
 
 // Check database connection health

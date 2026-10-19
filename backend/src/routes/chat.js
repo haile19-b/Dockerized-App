@@ -3,10 +3,15 @@ const router = express.Router();
 const db = require('../db');
 const gemini = require('../gemini');
 
-// GET /api/messages - Retrieve full conversation history
+const getSessionId = (req) => {
+  return req.headers['x-session-id'] || req.query.sessionId || req.body?.sessionId || 'default';
+};
+
+// GET /api/messages - Retrieve conversation history for current session
 router.get('/messages', async (req, res) => {
   try {
-    const messages = await db.getMessages();
+    const sessionId = getSessionId(req);
+    const messages = await db.getMessages(sessionId);
     return res.status(200).json(messages);
   } catch (err) {
     console.error('[Route /messages GET] Error:', err);
@@ -14,10 +19,11 @@ router.get('/messages', async (req, res) => {
   }
 });
 
-// POST /api/chat - Process user message, call Gemini, and store both messages
+// POST /api/chat - Process user message, call Gemini, and store both messages under session
 router.post('/chat', async (req, res) => {
   try {
-    const { message } = req.body;
+    const { message, sessionId: bodySessionId } = req.body;
+    const sessionId = bodySessionId || getSessionId(req);
 
     if (!message || typeof message !== 'string' || message.trim() === '') {
       return res.status(400).json({ error: 'Message content cannot be empty.' });
@@ -25,22 +31,23 @@ router.post('/chat', async (req, res) => {
 
     const trimmedMessage = message.trim();
 
-    // 1. Save user message to PostgreSQL
-    const userMessage = await db.saveMessage('user', trimmedMessage);
+    // 1. Save user message to PostgreSQL for this session
+    const userMessage = await db.saveMessage('user', trimmedMessage, sessionId);
 
-    // 2. Fetch recent conversation history to provide context if needed
-    const history = await db.getMessages();
+    // 2. Fetch session conversation history to provide context if needed
+    const history = await db.getMessages(sessionId);
 
     // 3. Request AI response from Gemini
     const replyText = await gemini.generateChatResponse(trimmedMessage, history);
 
-    // 4. Save assistant response to PostgreSQL
-    const assistantMessage = await db.saveMessage('assistant', replyText);
+    // 4. Save assistant response to PostgreSQL for this session
+    const assistantMessage = await db.saveMessage('assistant', replyText, sessionId);
 
     return res.status(200).json({
       reply: replyText,
       userMessage,
       assistantMessage,
+      sessionId,
     });
   } catch (err) {
     console.error('[Route /chat POST] Error:', err);
@@ -51,10 +58,11 @@ router.post('/chat', async (req, res) => {
   }
 });
 
-// DELETE /api/messages - Clear conversation history
+// DELETE /api/messages - Clear conversation history for current session
 router.delete('/messages', async (req, res) => {
   try {
-    await db.clearMessages();
+    const sessionId = getSessionId(req);
+    await db.clearMessages(sessionId);
     return res.status(200).json({ message: 'Conversation history cleared successfully.' });
   } catch (err) {
     console.error('[Route /messages DELETE] Error:', err);
